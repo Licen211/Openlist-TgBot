@@ -619,10 +619,10 @@ def list_aria2_tasks() -> tuple[bool, list[dict] | str]:
 
 def list_offline_tasks_with_fallback() -> tuple[bool, tuple[str, list[dict]] | str]:
     ok, result = list_openlist_tasks()
-    if ok:
+    if ok and result:
         return True, ("OpenList", result)
 
-    errors = [f"OpenList: {result}"]
+    errors = [f"OpenList: {result}" if not ok else "OpenList: 无任务"]
     combined_tasks: list[dict] = []
 
     qb_ok, qb_result = list_qbit_tasks()
@@ -639,6 +639,9 @@ def list_offline_tasks_with_fallback() -> tuple[bool, tuple[str, list[dict]] | s
 
     if combined_tasks:
         return True, ("qBittorrent/aria2", combined_tasks)
+
+    if ok:
+        return True, ("OpenList", result)
 
     return False, "；".join(errors)
 
