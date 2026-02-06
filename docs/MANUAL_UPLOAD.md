@@ -144,3 +144,22 @@ curl -4 ifconfig.me
 ```text
 http://<服务器IP>:8080/Openlist-TgBot-20260206-xxxxxx.tar.gz
 ```
+
+
+## 8) 我没有服务器，也没有本地文件，怎么拿到项目？
+
+如果你没有服务器、也还没有把项目同步到你的 GitHub，那么你需要**先把项目放到你的 GitHub**，再在平板上下载。
+
+最省事的流程：
+
+1. 在你自己的电脑上（Windows/Mac）打开这个仓库地址：
+   `https://github.com/Licen211/Openlist-TgBot`
+2. 点击 **Code** -> **Download ZIP** 下载源码压缩包
+3. 解压后，如需再打包就运行 `package.sh` 生成 `dist/*.tar.gz`
+4. 用网盘/微信/QQ/数据线等方式把压缩包传到平板
+
+如果你没有电脑：
+
+- 也可以在手机上打开 GitHub 仓库页面直接下载 ZIP，然后转发到平板。
+
+> 关键点：**我无法直接把文件放进你的平板**，需要你从 GitHub 下载或通过你的设备间传输。
