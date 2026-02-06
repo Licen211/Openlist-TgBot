@@ -129,6 +129,11 @@ OPENLIST_WEBDAV_URL=do.Licen.live:525/dav
 程序会自动补成 `http://`。
 
 
+
+## 手动上传到 GitHub
+
+如果你需要在网络受限场景下手动上传，请查看：`docs/MANUAL_UPLOAD.md`。
+
 ## Ubuntu 服务器部署建议
 
 推荐在 Ubuntu 20.04+/22.04+ 上按下面顺序部署：
