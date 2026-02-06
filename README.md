@@ -134,6 +134,8 @@ OPENLIST_WEBDAV_URL=do.Licen.live:525/dav
 
 如果你需要在网络受限场景下手动上传，请查看：`docs/MANUAL_UPLOAD.md`。
 
+另外如果你要在平板上直接下载打包文件，可以按文档里的“给平板一个可直接点击的下载链接”章节，用 `python3 -m http.server` 临时共享 `dist/` 目录。
+
 ## Ubuntu 服务器部署建议
 
 推荐在 Ubuntu 20.04+/22.04+ 上按下面顺序部署：

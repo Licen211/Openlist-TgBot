@@ -68,3 +68,35 @@ chmod +x install.sh
 - `OPENLIST_DEFAULT_OFFLINE_TOOL`（`aria2` 或 `qb`）
 
 > 你的地址不带协议时，程序会自动按 `http://` 处理。
+
+
+## 5) 给平板一个可直接点击的下载链接
+
+你之前看到的 `dist/xxx.tar.gz` 是**服务器本地路径**，不是公网 URL，所以不能直接在平板点开。
+
+如果你的 Ubuntu 服务器和你的平板在同一网络（或服务器端口可访问），可临时开启 HTTP 文件服务：
+
+```bash
+cd /workspace/Openlist-TgBot/dist
+python3 -m http.server 8080 --bind 0.0.0.0
+```
+
+然后在平板浏览器打开：
+
+```text
+http://<你的服务器IP>:8080/Openlist-TgBot-20260206-xxxxxx.tar.gz
+```
+
+示例：
+
+```text
+http://192.168.1.20:8080/Openlist-TgBot-20260206-063540.tar.gz
+```
+
+如果打不开，请检查：
+
+- 服务器防火墙是否放行 8080 端口（如 `ufw allow 8080`）
+- 云服务器安全组是否放行 8080
+- 平板与服务器网络是否互通
+
+下载完成后，按 `Ctrl + C` 停止临时文件服务。
