@@ -93,6 +93,14 @@ python bot.py
 - `OPENLIST_DEFAULT_DOWNLOAD_DIR`：全局默认下载目录（默认：`/downloads`）
 - `OPENLIST_DEFAULT_OFFLINE_TOOL`：全局默认离线下载方式（`aria2` 或 `qb`，默认：`aria2`）
 
+### qBittorrent / aria2（OpenList 查询失败时的离线任务进度兜底）
+
+- `QBIT_BASE_URL`：qBittorrent Web API 地址（例如：`http://127.0.0.1:8080`）
+- `QBIT_USERNAME`：qBittorrent 用户名
+- `QBIT_PASSWORD`：qBittorrent 密码
+- `ARIA2_RPC_URL`：aria2 JSON-RPC 地址（例如：`http://127.0.0.1:6800/jsonrpc`）
+- `ARIA2_RPC_SECRET`：aria2 RPC 密钥（可留空）
+
 ## 注意
 
 - 上传和下载大文件会消耗较多内存和带宽。

@@ -51,6 +51,11 @@ OPENLIST_OFFLINE_LIST_ENDPOINT = os.getenv(
 )
 OPENLIST_DEFAULT_DOWNLOAD_DIR = os.getenv("OPENLIST_DEFAULT_DOWNLOAD_DIR", "/downloads")
 OPENLIST_DEFAULT_OFFLINE_TOOL = os.getenv("OPENLIST_DEFAULT_OFFLINE_TOOL", "aria2")
+QBIT_BASE_URL = normalize_base_url(os.getenv("QBIT_BASE_URL", ""))
+QBIT_USERNAME = os.getenv("QBIT_USERNAME", "")
+QBIT_PASSWORD = os.getenv("QBIT_PASSWORD", "")
+ARIA2_RPC_URL = os.getenv("ARIA2_RPC_URL", "").strip()
+ARIA2_RPC_SECRET = os.getenv("ARIA2_RPC_SECRET", "")
 ALLOWED_USER_IDS = {
     int(uid.strip())
     for uid in os.getenv("ALLOWED_USER_IDS", "").split(",")
@@ -429,10 +434,12 @@ def format_task_progress(task: dict) -> str:
         progress_text = progress
 
     speed = task.get("speed") or task.get("download_speed") or "-"
-    return f"- {name}\n  状态: {status} | 进度: {progress_text} | 速度: {speed}"
+    tool = task.get("tool")
+    tool_prefix = f"[{tool}] " if tool else ""
+    return f"- {tool_prefix}{name}\n  状态: {status} | 进度: {progress_text} | 速度: {speed}"
 
 
-def list_offline_tasks() -> tuple[bool, list[dict] | str]:
+def list_openlist_tasks() -> tuple[bool, list[dict] | str]:
     if not OPENLIST_API_URL or not OPENLIST_API_TOKEN:
         return False, "未配置 OPENLIST_API_URL 或 OPENLIST_API_TOKEN，无法查询离线任务。"
 
@@ -487,22 +494,171 @@ def list_offline_tasks() -> tuple[bool, list[dict] | str]:
     return False, f"查询离线任务失败: {last_error}"
 
 
+def list_qbit_tasks() -> tuple[bool, list[dict] | str]:
+    if not QBIT_BASE_URL or not QBIT_USERNAME or not QBIT_PASSWORD:
+        return False, "未配置 QBIT_BASE_URL/QBIT_USERNAME/QBIT_PASSWORD。"
+
+    session = requests.Session()
+    try:
+        login_url = f"{QBIT_BASE_URL}/api/v2/auth/login"
+        resp = session.post(
+            login_url,
+            data={"username": QBIT_USERNAME, "password": QBIT_PASSWORD},
+            timeout=20,
+        )
+        if resp.status_code != 200 or resp.text.strip() != "Ok.":
+            return False, f"登录失败，HTTP {resp.status_code}: {resp.text[:200]}"
+
+        list_url = f"{QBIT_BASE_URL}/api/v2/torrents/info"
+        resp = session.get(list_url, timeout=20)
+        if resp.status_code != 200:
+            return False, f"任务列表失败，HTTP {resp.status_code}: {resp.text[:200]}"
+
+        torrents = resp.json()
+        tasks: list[dict] = []
+        for tor in torrents:
+            tasks.append(
+                {
+                    "name": tor.get("name") or tor.get("hash") or "(未命名任务)",
+                    "status": tor.get("state") or "unknown",
+                    "progress": tor.get("progress"),
+                    "speed": tor.get("dlspeed"),
+                    "tool": "qb",
+                }
+            )
+        return True, tasks
+    except (requests.RequestException, ValueError) as exc:
+        return False, f"查询失败: {exc}"
+    finally:
+        session.close()
+
+
+def _aria2_rpc_call(method: str, params: list | None = None) -> tuple[bool, dict | list | str]:
+    if not ARIA2_RPC_URL:
+        return False, "未配置 ARIA2_RPC_URL。"
+
+    payload: dict = {"jsonrpc": "2.0", "id": "bot", "method": method, "params": []}
+    if params:
+        payload["params"] = params
+    if ARIA2_RPC_SECRET:
+        payload["params"].insert(0, f"token:{ARIA2_RPC_SECRET}")
+
+    try:
+        resp = requests.post(ARIA2_RPC_URL, json=payload, timeout=20)
+        if resp.status_code != 200:
+            return False, f"HTTP {resp.status_code}: {resp.text[:200]}"
+        body = resp.json()
+        if "error" in body:
+            return False, body["error"].get("message", "未知错误")
+        return True, body.get("result", [])
+    except (requests.RequestException, ValueError) as exc:
+        return False, str(exc)
+
+
+def _aria2_extract_name(item: dict) -> str:
+    if isinstance(item.get("bittorrent"), dict):
+        info = item["bittorrent"].get("info", {})
+        if isinstance(info, dict) and info.get("name"):
+            return info["name"]
+    files = item.get("files")
+    if isinstance(files, list) and files:
+        path = files[0].get("path")
+        if path:
+            return os.path.basename(path)
+    return item.get("gid", "(未命名任务)")
+
+
+def list_aria2_tasks() -> tuple[bool, list[dict] | str]:
+    ok, active = _aria2_rpc_call(
+        "aria2.tellActive",
+        [[
+            "gid",
+            "status",
+            "totalLength",
+            "completedLength",
+            "downloadSpeed",
+            "files",
+            "bittorrent",
+        ]],
+    )
+    if not ok:
+        return False, f"查询失败: {active}"
+
+    ok_waiting, waiting = _aria2_rpc_call(
+        "aria2.tellWaiting",
+        [0, 20, [
+            "gid",
+            "status",
+            "totalLength",
+            "completedLength",
+            "downloadSpeed",
+            "files",
+            "bittorrent",
+        ]],
+    )
+    if not ok_waiting:
+        waiting = []
+
+    tasks: list[dict] = []
+    for item in list(active) + list(waiting):
+        total = float(item.get("totalLength") or 0)
+        completed = float(item.get("completedLength") or 0)
+        progress = completed / total if total > 0 else None
+        tasks.append(
+            {
+                "name": _aria2_extract_name(item),
+                "status": item.get("status") or "unknown",
+                "progress": progress,
+                "speed": item.get("downloadSpeed"),
+                "tool": "aria2",
+            }
+        )
+
+    return True, tasks
+
+
+def list_offline_tasks_with_fallback() -> tuple[bool, tuple[str, list[dict]] | str]:
+    ok, result = list_openlist_tasks()
+    if ok:
+        return True, ("OpenList", result)
+
+    errors = [f"OpenList: {result}"]
+    combined_tasks: list[dict] = []
+
+    qb_ok, qb_result = list_qbit_tasks()
+    if qb_ok:
+        combined_tasks.extend(qb_result)
+    else:
+        errors.append(f"qBittorrent: {qb_result}")
+
+    aria_ok, aria_result = list_aria2_tasks()
+    if aria_ok:
+        combined_tasks.extend(aria_result)
+    else:
+        errors.append(f"aria2: {aria_result}")
+
+    if combined_tasks:
+        return True, ("qBittorrent/aria2", combined_tasks)
+
+    return False, "；".join(errors)
+
+
 async def tasks_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
 
-    await update.message.reply_text("正在查询 OpenList 离线下载任务...")
-    ok, result = list_offline_tasks()
+    await update.message.reply_text("正在查询离线下载任务...")
+    ok, result = list_offline_tasks_with_fallback()
     if not ok:
         await update.message.reply_text(str(result))
         return
 
-    tasks = result
+    source, tasks = result
     if not tasks:
-        await update.message.reply_text("当前没有离线下载任务。")
+        await update.message.reply_text(f"{source} 当前没有离线下载任务。")
         return
 
-    lines = ["离线下载任务进度（最多显示20条）:"]
+    lines = [f"离线下载任务进度（来源: {source}，最多显示20条）:"]
     for task in tasks[:20]:
         lines.append(format_task_progress(task))
     await update.message.reply_text("\n".join(lines))
@@ -1175,18 +1331,18 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if action == "tasks":
-        await message.reply_text("正在查询 OpenList 离线下载任务...")
-        ok, result = list_offline_tasks()
+        await message.reply_text("正在查询离线下载任务...")
+        ok, result = list_offline_tasks_with_fallback()
         if not ok:
             await message.reply_text(str(result))
             await query.answer()
             return
-        tasks = result
+        source, tasks = result
         if not tasks:
-            await message.reply_text("当前没有离线下载任务。")
+            await message.reply_text(f"{source} 当前没有离线下载任务。")
             await query.answer()
             return
-        lines = ["离线下载任务进度（最多显示20条）:"]
+        lines = [f"离线下载任务进度（来源: {source}，最多显示20条）:"]
         for task in tasks[:20]:
             lines.append(format_task_progress(task))
         await message.reply_text("\n".join(lines))
