@@ -310,6 +310,10 @@ def build_magnet_dir_keyboard(session_id: str, current_path: str) -> InlineKeybo
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
 
+    rows.append(
+        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"mag:pick:{session_id}:.")]
+    )
+
     if current_path != "/":
         parent = os.path.dirname(current_path.rstrip("/")) or "/"
         rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"mag:go:{session_id}:{parent}")])
@@ -331,6 +335,10 @@ def build_dir_picker_keyboard(session_id: str, current_path: str) -> InlineKeybo
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
 
+    rows.append(
+        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"dir:pick:{session_id}:.")]
+    )
+
     if current_path != "/":
         parent = os.path.dirname(current_path.rstrip("/")) or "/"
         rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dir:go:{session_id}:{parent}")])
@@ -351,6 +359,10 @@ def build_dir_picker_keyboard(session_id: str, current_path: str) -> InlineKeybo
 def build_upload_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
+
+    rows.append(
+        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"up:pick:{session_id}:.")]
+    )
 
     if current_path != "/":
         parent = os.path.dirname(current_path.rstrip("/")) or "/"
@@ -399,6 +411,10 @@ def build_download_picker_keyboard(session_id: str, current_path: str) -> Inline
 def build_mkdir_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
+
+    rows.append(
+        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"mk:pick:{session_id}:.")]
+    )
 
     if current_path != "/":
         parent = os.path.dirname(current_path.rstrip("/")) or "/"
