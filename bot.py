@@ -529,6 +529,10 @@ def list_openlist_tasks() -> tuple[bool, list[dict] | str]:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
                     continue
 
+                if not resp.text.strip():
+                    last_error = "响应为空"
+                    continue
+
                 body = resp.json()
                 code = body.get("code")
                 if code not in (200, 0, None):
@@ -885,6 +889,11 @@ def create_offline_download_task(
     normalized_target = normalize_remote_path(target_dir)
     headers = get_openlist_api_headers()
     tool = normalize_offline_tool(offline_tool)
+    tool_variants = [tool]
+    if tool == "qb":
+        tool_variants.extend(["qbittorrent", "qbit"])
+    elif tool == "aria2":
+        tool_variants.extend(["aria2", "rpc"])
 
     base_payloads = [
         {"path": normalized_target, "urls": [magnet_link]},
@@ -895,10 +904,11 @@ def create_offline_download_task(
     payload_candidates: list[dict] = []
     for payload in base_payloads:
         payload_candidates.append(payload)
-        payload_candidates.append({**payload, "tool": tool})
-        payload_candidates.append({**payload, "method": tool})
-        payload_candidates.append({**payload, "provider": tool})
-        payload_candidates.append({**payload, "type": tool})
+        for variant in tool_variants:
+            payload_candidates.append({**payload, "tool": variant})
+            payload_candidates.append({**payload, "method": variant})
+            payload_candidates.append({**payload, "provider": variant})
+            payload_candidates.append({**payload, "type": variant})
 
     last_error = ""
     for payload in payload_candidates:
@@ -908,11 +918,18 @@ def create_offline_download_task(
                 last_error = f"HTTP {resp.status_code}: {resp.text[:300]}"
                 continue
 
+            if not resp.text.strip():
+                last_error = "响应为空"
+                continue
+
             body = resp.json()
             code = body.get("code")
             message = body.get("message", "")
             if code in (200, 0, None):
-                return True, f"离线下载任务已创建到目录: {normalized_target}，方式: {tool}"
+                return True, (
+                    f"离线下载任务已创建到目录: {normalized_target}，方式: {tool}。"
+                    "如果网页端未显示任务，请检查 OpenList 离线工具配置或用 /tasks 查询。"
+                )
 
             last_error = f"API code={code}, message={message}"
         except (requests.RequestException, ValueError) as exc:
