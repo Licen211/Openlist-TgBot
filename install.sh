@@ -127,6 +127,11 @@ configure_env_interactive() {
     OPENLIST_OFFLINE_LIST_ENDPOINT
     OPENLIST_DEFAULT_DOWNLOAD_DIR
     OPENLIST_DEFAULT_OFFLINE_TOOL
+    QBIT_BASE_URL
+    QBIT_USERNAME
+    QBIT_PASSWORD
+    ARIA2_RPC_URL
+    ARIA2_RPC_SECRET
   )
 
   for key in "${keys[@]}"; do
@@ -154,7 +159,12 @@ configure_env_quick_menu() {
     echo "11) 设置目录浏览接口路径"
     echo "12) 设置创建目录接口路径"
     echo "13) 设置离线任务列表接口路径"
-    echo "14) 全量配置（逐项输入）"
+    echo "14) 设置 qBittorrent Web API 地址"
+    echo "15) 设置 qBittorrent 用户名"
+    echo "16) 设置 qBittorrent 密码"
+    echo "17) 设置 aria2 RPC 地址"
+    echo "18) 设置 aria2 RPC Secret（可选）"
+    echo "19) 全量配置（逐项输入）"
     echo "0) 返回上级菜单"
     read -r -p "请选择: " choice
 
@@ -172,7 +182,12 @@ configure_env_quick_menu() {
       11) prompt_and_set_key "OPENLIST_LIST_ENDPOINT" ;;
       12) prompt_and_set_key "OPENLIST_MKDIR_ENDPOINT" ;;
       13) prompt_and_set_key "OPENLIST_OFFLINE_LIST_ENDPOINT" ;;
-      14) configure_env_interactive ;;
+      14) prompt_and_set_key "QBIT_BASE_URL" ;;
+      15) prompt_and_set_key "QBIT_USERNAME" ;;
+      16) prompt_and_set_key "QBIT_PASSWORD" ;;
+      17) prompt_and_set_key "ARIA2_RPC_URL" ;;
+      18) prompt_and_set_key "ARIA2_RPC_SECRET" ;;
+      19) configure_env_interactive ;;
       0) break ;;
       *) echo "无效选项" ;;
     esac
