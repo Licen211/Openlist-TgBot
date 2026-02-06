@@ -688,7 +688,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/mkdir - 选择父目录后输入文件夹名创建目录\n"
         "/setdir - 打开目录选择器并设置默认任务目录\n"
         "/getdir - 查看你当前默认任务目录\n"
-        "/settool <aria2|qb> - 设置默认离线下载方式\n"
+        "/settool - 选择默认离线下载方式\n"
         "/gettool - 查看当前离线下载方式\n"
         "/upload - 打开目录选择器并等待上传\n"
         "/magnet <磁力链接> - 发送后弹出目录选择器\n"
@@ -711,6 +711,7 @@ async def quick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [InlineKeyboardButton("📁 设置默认目录", callback_data="quick:setdir")],
             [InlineKeyboardButton("📂 创建目录", callback_data="quick:mkdir")],
             [InlineKeyboardButton("📍 查看当前目录", callback_data="quick:getdir")],
+            [InlineKeyboardButton("🛠️ 设置离线方式", callback_data="quick:settool")],
             [InlineKeyboardButton("🧾 查看离线任务", callback_data="quick:tasks")],
             [InlineKeyboardButton("❌ 关闭菜单", callback_data="quick:cancel")],
         ]
@@ -744,7 +745,14 @@ async def settool(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("用法: /settool <aria2|qb>")
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("aria2", callback_data="settool:aria2")],
+                [InlineKeyboardButton("qb", callback_data="settool:qb")],
+                [InlineKeyboardButton("❌ 取消", callback_data="settool:cancel")],
+            ]
+        )
+        await update.message.reply_text("请选择离线下载方式：", reply_markup=keyboard)
         return
 
     user = update.effective_user
@@ -1352,12 +1360,53 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer()
         return
 
+    if action == "settool":
+        keyboard = InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton("aria2", callback_data="settool:aria2")],
+                [InlineKeyboardButton("qb", callback_data="settool:qb")],
+                [InlineKeyboardButton("❌ 取消", callback_data="settool:cancel")],
+            ]
+        )
+        await message.reply_text("请选择离线下载方式：", reply_markup=keyboard)
+        await query.answer()
+        return
+
     if action == "mkdir":
         await open_mkdir_picker(user.id, message)
         await query.answer()
         return
 
     await query.answer("未知操作")
+
+
+async def settool_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    user = query.from_user
+    if not is_allowed(user.id):
+        await query.answer("没有权限", show_alert=True)
+        return
+
+    if not query.data.startswith("settool:"):
+        return
+
+    action = query.data.split(":", 1)[1]
+    if action == "cancel":
+        await query.edit_message_text("已取消设置离线下载方式。")
+        await query.answer()
+        return
+
+    if action not in ("aria2", "qb"):
+        await query.answer("无效选择", show_alert=True)
+        return
+
+    tool = normalize_offline_tool(action)
+    USER_SELECTED_TOOLS[user.id] = tool
+    await query.edit_message_text(f"已设置默认离线下载方式: {tool}")
+    await query.answer("已设置")
 
 
 async def magnet_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1473,7 +1522,7 @@ def main() -> None:
                 BotCommand("mkdir", "选择目录后创建文件夹"),
                 BotCommand("setdir", "选择默认下载目录"),
                 BotCommand("getdir", "查看当前默认目录"),
-                BotCommand("settool", "设置离线下载方式"),
+                BotCommand("settool", "选择离线下载方式"),
                 BotCommand("gettool", "查看离线下载方式"),
                 BotCommand("magnet", "创建离线下载任务"),
                 BotCommand("tasks", "查看离线任务"),
@@ -1498,6 +1547,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(download_picker_callback, pattern=r"^dl:"))
     app.add_handler(CallbackQueryHandler(mkdir_dir_picker_callback, pattern=r"^mk:"))
     app.add_handler(CallbackQueryHandler(quick_callback, pattern=r"^quick:"))
+    app.add_handler(CallbackQueryHandler(settool_callback, pattern=r"^settool:"))
     app.add_handler(MessageHandler(filters.Document.ALL, upload_document))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mkdir_name_handler))
     app.add_handler(
