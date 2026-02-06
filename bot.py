@@ -533,7 +533,14 @@ def list_openlist_tasks() -> tuple[bool, list[dict] | str]:
                     last_error = "响应为空"
                     continue
 
-                body = resp.json()
+                try:
+                    body = resp.json()
+                except ValueError:
+                    content_type = resp.headers.get("Content-Type", "")
+                    snippet = resp.text[:200]
+                    last_error = f"非JSON响应({content_type}): {snippet}"
+                    continue
+
                 code = body.get("code")
                 if code not in (200, 0, None):
                     last_error = f"API code={code}, message={body.get('message', '')}"
@@ -922,7 +929,13 @@ def create_offline_download_task(
                 last_error = "响应为空"
                 continue
 
-            body = resp.json()
+            try:
+                body = resp.json()
+            except ValueError:
+                content_type = resp.headers.get("Content-Type", "")
+                snippet = resp.text[:200]
+                last_error = f"非JSON响应({content_type}): {snippet}"
+                continue
             code = body.get("code")
             message = body.get("message", "")
             if code in (200, 0, None):
