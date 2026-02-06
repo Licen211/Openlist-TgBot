@@ -282,6 +282,29 @@ view_log() {
   tail -n 50 "$LOG_FILE"
 }
 
+update_bot() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "未找到 git，请先安装 git。"
+    return
+  fi
+
+  if [[ ! -d "$PROJECT_DIR/.git" ]]; then
+    echo "当前目录不是 Git 仓库，无法更新。"
+    return
+  fi
+
+  echo "拉取最新代码..."
+  git fetch --all
+  git pull --rebase --autostash
+
+  echo "更新依赖..."
+  install_deps
+
+  echo "重启机器人..."
+  stop_bot
+  start_bot
+}
+
 quick_install_and_start() {
   install_deps
   configure_env_quick_menu
@@ -299,6 +322,7 @@ menu() {
     echo "6) 停止机器人"
     echo "7) 查看运行状态"
     echo "8) 查看最近日志"
+    echo "9) 更新机器人（git 拉取并重启）"
     echo "0) 退出"
     read -r -p "请选择: " choice
 
@@ -311,6 +335,7 @@ menu() {
       6) stop_bot ;;
       7) status_bot ;;
       8) view_log ;;
+      9) update_bot ;;
       0) echo "已退出"; break ;;
       *) echo "无效选项" ;;
     esac
