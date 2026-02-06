@@ -13,6 +13,7 @@
 - `/download <远程文件路径>`：从 OpenList 下载文件并回传到 Telegram
   - 示例：`/download /Movies/demo.mp4`
 - `/download`：打开文件选择器并下载文件（需要配置 OpenList API）
+- `/quick`：打开常用快捷操作菜单
 - 发送文档并附带 caption：`/upload <远程目录或完整路径>`
   - 如果是目录，自动使用 Telegram 原文件名
   - 示例：`/upload /Uploads/`

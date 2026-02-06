@@ -5,7 +5,7 @@ from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -236,6 +236,48 @@ def list_openlist_entries(path: str) -> tuple[bool, tuple[list[str], list[str]] 
         return False, f"列目录失败: {exc}"
 
 
+async def open_setdir_picker(user_id: int, message) -> None:
+    session_id = next_dir_session_id()
+    default_dir = get_user_download_dir(user_id)
+    DIR_PICK_SESSIONS[session_id] = {
+        "user_id": user_id,
+        "path": default_dir,
+    }
+    keyboard = build_dir_picker_keyboard(session_id, default_dir)
+    await message.reply_text(
+        f"请选择要设置的默认目录（当前: {default_dir}）",
+        reply_markup=keyboard,
+    )
+
+
+async def open_upload_picker(user_id: int, message) -> None:
+    session_id = next_upload_session_id()
+    default_dir = get_user_download_dir(user_id)
+    UPLOAD_PICK_SESSIONS[session_id] = {
+        "user_id": user_id,
+        "path": default_dir,
+    }
+    keyboard = build_upload_dir_keyboard(session_id, default_dir)
+    await message.reply_text(
+        f"请选择上传目录（当前: {default_dir}）",
+        reply_markup=keyboard,
+    )
+
+
+async def open_download_picker(user_id: int, message) -> None:
+    session_id = next_download_session_id()
+    default_dir = get_user_download_dir(user_id)
+    DOWNLOAD_PICK_SESSIONS[session_id] = {
+        "user_id": user_id,
+        "path": default_dir,
+    }
+    keyboard = build_download_picker_keyboard(session_id, default_dir)
+    await message.reply_text(
+        f"请选择要下载的文件（当前目录: {default_dir}）",
+        reply_markup=keyboard,
+    )
+
+
 def build_magnet_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
@@ -446,6 +488,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "可用命令:\n"
         "/download <远程文件路径> - 从 OpenList 下载文件\n"
         "/download - 打开文件选择器并下载文件\n"
+        "/quick - 打开常用快捷操作菜单\n"
         "/mkdir <远程目录路径> - 在 OpenList 创建目录\n"
         "/setdir <远程目录> - 设置你的默认任务目录\n"
         "/setdir - 打开目录选择器并设置默认任务目录\n"
@@ -463,6 +506,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def quick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await require_auth(update):
+        return
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📄 下载文件", callback_data="quick:download")],
+            [InlineKeyboardButton("📤 上传文件", callback_data="quick:upload")],
+            [InlineKeyboardButton("📁 设置默认目录", callback_data="quick:setdir")],
+            [InlineKeyboardButton("📍 查看当前目录", callback_data="quick:getdir")],
+            [InlineKeyboardButton("🧾 查看离线任务", callback_data="quick:tasks")],
+            [InlineKeyboardButton("❌ 关闭菜单", callback_data="quick:cancel")],
+        ]
+    )
+    await update.message.reply_text("请选择快捷操作：", reply_markup=keyboard)
+
+
 async def setdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
@@ -471,17 +531,7 @@ async def setdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if not user:
             return
-        session_id = next_dir_session_id()
-        default_dir = get_user_download_dir(user.id)
-        DIR_PICK_SESSIONS[session_id] = {
-            "user_id": user.id,
-            "path": default_dir,
-        }
-        keyboard = build_dir_picker_keyboard(session_id, default_dir)
-        await update.message.reply_text(
-            f"请选择要设置的默认目录（当前: {default_dir}）",
-            reply_markup=keyboard,
-        )
+        await open_setdir_picker(user.id, update.message)
         return
 
     user = update.effective_user
@@ -538,18 +588,7 @@ async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user = update.effective_user
     if not user:
         return
-
-    session_id = next_upload_session_id()
-    default_dir = get_user_download_dir(user.id)
-    UPLOAD_PICK_SESSIONS[session_id] = {
-        "user_id": user.id,
-        "path": default_dir,
-    }
-    keyboard = build_upload_dir_keyboard(session_id, default_dir)
-    await update.message.reply_text(
-        f"请选择上传目录（当前: {default_dir}）",
-        reply_markup=keyboard,
-    )
+    await open_upload_picker(user.id, update.message)
 
 async def download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
@@ -559,17 +598,7 @@ async def download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         user = update.effective_user
         if not user:
             return
-        session_id = next_download_session_id()
-        default_dir = get_user_download_dir(user.id)
-        DOWNLOAD_PICK_SESSIONS[session_id] = {
-            "user_id": user.id,
-            "path": default_dir,
-        }
-        keyboard = build_download_picker_keyboard(session_id, default_dir)
-        await update.message.reply_text(
-            f"请选择要下载的文件（当前目录: {default_dir}）",
-            reply_markup=keyboard,
-        )
+        await open_download_picker(user.id, update.message)
         return
 
     remote_path = " ".join(context.args).strip()
@@ -1094,6 +1123,73 @@ async def download_picker_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer("未知操作")
 
 
+async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    user = query.from_user
+    if not is_allowed(user.id):
+        await query.answer("没有权限", show_alert=True)
+        return
+
+    if not query.data.startswith("quick:"):
+        return
+
+    action = query.data.split(":", 1)[1]
+    message = query.message
+    if message is None:
+        await query.answer()
+        return
+
+    if action == "cancel":
+        await query.edit_message_text("已关闭快捷菜单。")
+        await query.answer()
+        return
+
+    if action == "download":
+        await open_download_picker(user.id, message)
+        await query.answer()
+        return
+
+    if action == "upload":
+        await open_upload_picker(user.id, message)
+        await query.answer()
+        return
+
+    if action == "setdir":
+        await open_setdir_picker(user.id, message)
+        await query.answer()
+        return
+
+    if action == "getdir":
+        current_dir = get_user_download_dir(user.id)
+        await message.reply_text(f"你当前默认目录: {current_dir}")
+        await query.answer()
+        return
+
+    if action == "tasks":
+        await message.reply_text("正在查询 OpenList 离线下载任务...")
+        ok, result = list_offline_tasks()
+        if not ok:
+            await message.reply_text(str(result))
+            await query.answer()
+            return
+        tasks = result
+        if not tasks:
+            await message.reply_text("当前没有离线下载任务。")
+            await query.answer()
+            return
+        lines = ["离线下载任务进度（最多显示20条）:"]
+        for task in tasks[:20]:
+            lines.append(format_task_progress(task))
+        await message.reply_text("\n".join(lines))
+        await query.answer()
+        return
+
+    await query.answer("未知操作")
+
+
 async def magnet_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
@@ -1183,8 +1279,25 @@ def validate_env() -> None:
 def main() -> None:
     validate_env()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    async def post_init(application: Application) -> None:
+        await application.bot.set_my_commands(
+            [
+                BotCommand("start", "显示帮助"),
+                BotCommand("quick", "快捷操作菜单"),
+                BotCommand("download", "下载文件或打开选择器"),
+                BotCommand("upload", "选择目录后上传文件"),
+                BotCommand("setdir", "设置默认下载目录"),
+                BotCommand("getdir", "查看当前默认目录"),
+                BotCommand("settool", "设置离线下载方式"),
+                BotCommand("gettool", "查看离线下载方式"),
+                BotCommand("magnet", "创建离线下载任务"),
+                BotCommand("tasks", "查看离线任务"),
+            ]
+        )
+
+    app = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("quick", quick_command))
     app.add_handler(CommandHandler("download", download_file))
     app.add_handler(CommandHandler("upload", upload_command))
     app.add_handler(CommandHandler("mkdir", mkdir))
@@ -1198,6 +1311,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(dir_picker_callback, pattern=r"^dir:"))
     app.add_handler(CallbackQueryHandler(upload_dir_picker_callback, pattern=r"^up:"))
     app.add_handler(CallbackQueryHandler(download_picker_callback, pattern=r"^dl:"))
+    app.add_handler(CallbackQueryHandler(quick_callback, pattern=r"^quick:"))
     app.add_handler(MessageHandler(filters.Document.ALL, upload_document))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, magnet_text_handler),
