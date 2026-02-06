@@ -116,3 +116,31 @@ http://192.168.1.20:8080/Openlist-TgBot-20260206-063540.tar.gz
 2. 或者把代码推到 GitHub 后，直接在 GitHub 页面下载 ZIP。
 
 一句话：**网页对话入口 ≠ 文件就在你平板本地**，需要一次“下载传输”步骤。
+
+
+## 7) 我怎么知道服务器 IP？
+
+在你的 Ubuntu 服务器上执行下面任一命令：
+
+```bash
+hostname -I
+```
+
+或：
+
+```bash
+ip -4 addr show | awk '/inet /{print $2}'
+```
+
+- `hostname -I` 常用于快速查看内网 IP（如 `192.168.x.x`）。
+- 如果是云服务器，需要在云平台控制台查看公网 IP，或执行：
+
+```bash
+curl -4 ifconfig.me
+```
+
+拿到 IP 后，你的平板下载链接格式就是：
+
+```text
+http://<服务器IP>:8080/Openlist-TgBot-20260206-xxxxxx.tar.gz
+```
