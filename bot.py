@@ -59,8 +59,15 @@ ALLOWED_USER_IDS = {
 
 USER_SELECTED_DIRS: dict[int, str] = {}
 USER_SELECTED_TOOLS: dict[int, str] = {}
+USER_PENDING_UPLOAD_DIRS: dict[int, str] = {}
 MAGNET_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
 MAGNET_PICK_SEQ = 0
+DIR_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
+DIR_PICK_SEQ = 0
+DOWNLOAD_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
+DOWNLOAD_PICK_SEQ = 0
+UPLOAD_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
+UPLOAD_PICK_SEQ = 0
 
 
 def is_allowed(user_id: int) -> bool:
@@ -122,6 +129,24 @@ def next_magnet_session_id() -> str:
     return f"m{MAGNET_PICK_SEQ}"
 
 
+def next_dir_session_id() -> str:
+    global DIR_PICK_SEQ
+    DIR_PICK_SEQ += 1
+    return f"d{DIR_PICK_SEQ}"
+
+
+def next_download_session_id() -> str:
+    global DOWNLOAD_PICK_SEQ
+    DOWNLOAD_PICK_SEQ += 1
+    return f"dl{DOWNLOAD_PICK_SEQ}"
+
+
+def next_upload_session_id() -> str:
+    global UPLOAD_PICK_SEQ
+    UPLOAD_PICK_SEQ += 1
+    return f"up{UPLOAD_PICK_SEQ}"
+
+
 def list_openlist_dirs(path: str) -> tuple[bool, list[str] | str]:
     if not OPENLIST_API_URL or not OPENLIST_API_TOKEN:
         return False, "未配置 OPENLIST_API_URL 或 OPENLIST_API_TOKEN，无法浏览目录。"
@@ -164,6 +189,53 @@ def list_openlist_dirs(path: str) -> tuple[bool, list[str] | str]:
         return False, f"列目录失败: {exc}"
 
 
+def list_openlist_entries(path: str) -> tuple[bool, tuple[list[str], list[str]] | str]:
+    if not OPENLIST_API_URL or not OPENLIST_API_TOKEN:
+        return False, "未配置 OPENLIST_API_URL 或 OPENLIST_API_TOKEN，无法浏览目录。"
+
+    normalized_path = normalize_remote_path(path)
+    api_url = build_openlist_api_url(OPENLIST_LIST_ENDPOINT)
+    payload = {
+        "path": normalized_path,
+        "password": "",
+        "page": 1,
+        "per_page": 0,
+        "refresh": False,
+    }
+
+    try:
+        resp = requests.post(
+            api_url,
+            headers=get_openlist_api_headers(),
+            json=payload,
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return False, f"列目录失败，HTTP {resp.status_code}: {resp.text[:200]}"
+
+        body = resp.json()
+        code = body.get("code")
+        if code not in (200, 0, None):
+            return False, f"列目录失败，code={code}, message={body.get('message', '')}"
+
+        content = body.get("data", {}).get("content", [])
+        dirs: list[str] = []
+        files: list[str] = []
+        for item in content:
+            name = item.get("name")
+            if not name:
+                continue
+            if item.get("is_dir"):
+                dirs.append(name)
+            else:
+                files.append(name)
+        dirs.sort()
+        files.sort()
+        return True, (dirs, files)
+    except (requests.RequestException, ValueError) as exc:
+        return False, f"列目录失败: {exc}"
+
+
 def build_magnet_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
@@ -184,6 +256,79 @@ def build_magnet_dir_keyboard(session_id: str, current_path: str) -> InlineKeybo
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"mag:noop:{session_id}")])
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"mag:cancel:{session_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_dir_picker_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
+    ok, result = list_openlist_dirs(current_path)
+    rows: list[list[InlineKeyboardButton]] = []
+
+    rows.append([InlineKeyboardButton("✅ 选择当前目录", callback_data=f"dir:pick:{session_id}")])
+
+    if current_path != "/":
+        parent = os.path.dirname(current_path.rstrip("/")) or "/"
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dir:go:{session_id}:{parent}")])
+
+    if ok:
+        for dirname in result:
+            next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            rows.append(
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"dir:go:{session_id}:{next_path}")]
+            )
+    else:
+        rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"dir:noop:{session_id}")])
+
+    rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"dir:cancel:{session_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_upload_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
+    ok, result = list_openlist_dirs(current_path)
+    rows: list[list[InlineKeyboardButton]] = []
+
+    rows.append([InlineKeyboardButton("✅ 选择当前目录", callback_data=f"up:pick:{session_id}")])
+
+    if current_path != "/":
+        parent = os.path.dirname(current_path.rstrip("/")) or "/"
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"up:go:{session_id}:{parent}")])
+
+    if ok:
+        for dirname in result:
+            next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            rows.append(
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"up:go:{session_id}:{next_path}")]
+            )
+    else:
+        rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"up:noop:{session_id}")])
+
+    rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"up:cancel:{session_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_download_picker_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
+    ok, result = list_openlist_entries(current_path)
+    rows: list[list[InlineKeyboardButton]] = []
+
+    if current_path != "/":
+        parent = os.path.dirname(current_path.rstrip("/")) or "/"
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dl:go:{session_id}:{parent}")])
+
+    if ok:
+        dirs, files = result
+        for dirname in dirs:
+            next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            rows.append(
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"dl:go:{session_id}:{next_path}")]
+            )
+        for filename in files:
+            file_path = normalize_remote_path(f"{current_path.rstrip('/')}/{filename}")
+            rows.append(
+                [InlineKeyboardButton(f"📄 {filename}", callback_data=f"dl:file:{session_id}:{file_path}")]
+            )
+    else:
+        rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"dl:noop:{session_id}")])
+
+    rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"dl:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -300,11 +445,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "可用命令:\n"
         "/download <远程文件路径> - 从 OpenList 下载文件\n"
+        "/download - 打开文件选择器并下载文件\n"
         "/mkdir <远程目录路径> - 在 OpenList 创建目录\n"
         "/setdir <远程目录> - 设置你的默认任务目录\n"
+        "/setdir - 打开目录选择器并设置默认任务目录\n"
         "/getdir - 查看你当前默认任务目录\n"
         "/settool <aria2|qb> - 设置默认离线下载方式\n"
         "/gettool - 查看当前离线下载方式\n"
+        "/upload - 打开目录选择器并等待上传\n"
         "/magnet <磁力链接> - 发送后弹出目录选择器\n"
         "/magnet <远程目录> <磁力链接> - 指定目录直接创建任务\n"
         "/magnet <aria2|qb> <磁力链接> - 指定下载方式并选择目录\n"
@@ -320,7 +468,20 @@ async def setdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("用法: /setdir <远程目录>")
+        user = update.effective_user
+        if not user:
+            return
+        session_id = next_dir_session_id()
+        default_dir = get_user_download_dir(user.id)
+        DIR_PICK_SESSIONS[session_id] = {
+            "user_id": user.id,
+            "path": default_dir,
+        }
+        keyboard = build_dir_picker_keyboard(session_id, default_dir)
+        await update.message.reply_text(
+            f"请选择要设置的默认目录（当前: {default_dir}）",
+            reply_markup=keyboard,
+        )
         return
 
     user = update.effective_user
@@ -370,12 +531,45 @@ async def gettool(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tool = get_user_offline_tool(user.id if user else None)
     await update.message.reply_text(f"你当前离线下载方式: {tool}")
 
+async def upload_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await require_auth(update):
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    session_id = next_upload_session_id()
+    default_dir = get_user_download_dir(user.id)
+    UPLOAD_PICK_SESSIONS[session_id] = {
+        "user_id": user.id,
+        "path": default_dir,
+    }
+    keyboard = build_upload_dir_keyboard(session_id, default_dir)
+    await update.message.reply_text(
+        f"请选择上传目录（当前: {default_dir}）",
+        reply_markup=keyboard,
+    )
+
 async def download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
 
     if not context.args:
-        await update.message.reply_text("用法: /download <远程文件路径>")
+        user = update.effective_user
+        if not user:
+            return
+        session_id = next_download_session_id()
+        default_dir = get_user_download_dir(user.id)
+        DOWNLOAD_PICK_SESSIONS[session_id] = {
+            "user_id": user.id,
+            "path": default_dir,
+        }
+        keyboard = build_download_picker_keyboard(session_id, default_dir)
+        await update.message.reply_text(
+            f"请选择要下载的文件（当前目录: {default_dir}）",
+            reply_markup=keyboard,
+        )
         return
 
     remote_path = " ".join(context.args).strip()
@@ -702,6 +896,204 @@ async def magnet_dir_picker_callback(update: Update, context: ContextTypes.DEFAU
     await query.answer("未知操作")
 
 
+async def dir_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    user = query.from_user
+    if not is_allowed(user.id):
+        await query.answer("没有权限", show_alert=True)
+        return
+
+    if not query.data.startswith("dir:"):
+        return
+
+    parts = query.data.split(":", 3)
+    action = parts[1] if len(parts) > 1 else ""
+    session_id = parts[2] if len(parts) > 2 else ""
+    extra = parts[3] if len(parts) > 3 else ""
+
+    session = DIR_PICK_SESSIONS.get(session_id)
+    if not session:
+        await query.answer("会话已失效，请重新发送 /setdir", show_alert=True)
+        return
+
+    if int(session.get("user_id", -1)) != user.id:
+        await query.answer("这个选择器不是你的。", show_alert=True)
+        return
+
+    if action == "noop":
+        await query.answer("当前目录读取失败")
+        return
+
+    if action == "cancel":
+        DIR_PICK_SESSIONS.pop(session_id, None)
+        await query.edit_message_text("已取消设置默认目录。")
+        await query.answer()
+        return
+
+    if action == "go":
+        new_path = normalize_remote_path(extra or "/")
+        session["path"] = new_path
+        keyboard = build_dir_picker_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择要设置的默认目录（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
+    if action == "pick":
+        target_dir = normalize_remote_path(str(session.get("path", "/")))
+        DIR_PICK_SESSIONS.pop(session_id, None)
+        USER_SELECTED_DIRS[user.id] = target_dir
+        await query.edit_message_text(f"已设置默认目录: {target_dir}")
+        await query.answer("已设置")
+        return
+
+    await query.answer("未知操作")
+
+
+async def upload_dir_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    user = query.from_user
+    if not is_allowed(user.id):
+        await query.answer("没有权限", show_alert=True)
+        return
+
+    if not query.data.startswith("up:"):
+        return
+
+    parts = query.data.split(":", 3)
+    action = parts[1] if len(parts) > 1 else ""
+    session_id = parts[2] if len(parts) > 2 else ""
+    extra = parts[3] if len(parts) > 3 else ""
+
+    session = UPLOAD_PICK_SESSIONS.get(session_id)
+    if not session:
+        await query.answer("会话已失效，请重新发送 /upload", show_alert=True)
+        return
+
+    if int(session.get("user_id", -1)) != user.id:
+        await query.answer("这个选择器不是你的。", show_alert=True)
+        return
+
+    if action == "noop":
+        await query.answer("当前目录读取失败")
+        return
+
+    if action == "cancel":
+        UPLOAD_PICK_SESSIONS.pop(session_id, None)
+        await query.edit_message_text("已取消选择上传目录。")
+        await query.answer()
+        return
+
+    if action == "go":
+        new_path = normalize_remote_path(extra or "/")
+        session["path"] = new_path
+        keyboard = build_upload_dir_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择上传目录（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
+    if action == "pick":
+        target_dir = normalize_remote_path(str(session.get("path", "/")))
+        UPLOAD_PICK_SESSIONS.pop(session_id, None)
+        USER_PENDING_UPLOAD_DIRS[user.id] = target_dir
+        await query.edit_message_text(f"已选择上传目录: {target_dir}\n请发送要上传的文档。")
+        await query.answer("已选择")
+        return
+
+    await query.answer("未知操作")
+
+
+async def download_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    user = query.from_user
+    if not is_allowed(user.id):
+        await query.answer("没有权限", show_alert=True)
+        return
+
+    if not query.data.startswith("dl:"):
+        return
+
+    parts = query.data.split(":", 3)
+    action = parts[1] if len(parts) > 1 else ""
+    session_id = parts[2] if len(parts) > 2 else ""
+    extra = parts[3] if len(parts) > 3 else ""
+
+    session = DOWNLOAD_PICK_SESSIONS.get(session_id)
+    if not session:
+        await query.answer("会话已失效，请重新发送 /download", show_alert=True)
+        return
+
+    if int(session.get("user_id", -1)) != user.id:
+        await query.answer("这个选择器不是你的。", show_alert=True)
+        return
+
+    if action == "noop":
+        await query.answer("当前目录读取失败")
+        return
+
+    if action == "cancel":
+        DOWNLOAD_PICK_SESSIONS.pop(session_id, None)
+        await query.edit_message_text("已取消下载。")
+        await query.answer()
+        return
+
+    if action == "go":
+        new_path = normalize_remote_path(extra or "/")
+        session["path"] = new_path
+        keyboard = build_download_picker_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择要下载的文件（当前目录: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
+    if action == "file":
+        file_path = normalize_remote_path(extra or "/")
+        DOWNLOAD_PICK_SESSIONS.pop(session_id, None)
+        await query.edit_message_text(f"开始下载: {file_path}")
+        file_name = os.path.basename(file_path.rstrip("/")) or "download.bin"
+        url = build_webdav_url(file_path)
+        try:
+            resp = requests.get(
+                url,
+                auth=(OPENLIST_USERNAME, OPENLIST_PASSWORD),
+                stream=True,
+                timeout=120,
+            )
+            if resp.status_code != 200:
+                await query.message.reply_text(f"下载失败，HTTP {resp.status_code}")
+                await query.answer("下载失败")
+                return
+
+            data = BytesIO(resp.content)
+            data.name = file_name
+            data.seek(0)
+            await query.message.reply_document(document=data, filename=file_name)
+            await query.answer("已下载")
+        except requests.RequestException as exc:
+            logger.exception("Download failed")
+            await query.message.reply_text(f"下载失败: {exc}")
+            await query.answer("下载失败")
+        return
+
+    await query.answer("未知操作")
+
+
 async def magnet_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
@@ -734,16 +1126,23 @@ async def upload_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     caption = msg.caption or ""
-    if not caption.strip().startswith("/upload"):
-        await msg.reply_text("请使用 caption: /upload <远程目录或完整路径>")
-        return
+    upload_target = None
 
-    parts = caption.strip().split(maxsplit=1)
-    if len(parts) < 2:
-        await msg.reply_text("用法: 在文档 caption 里写 /upload <远程目录或完整路径>")
-        return
+    if caption.strip().startswith("/upload"):
+        parts = caption.strip().split(maxsplit=1)
+        if len(parts) < 2:
+            await msg.reply_text("用法: 在文档 caption 里写 /upload <远程目录或完整路径>")
+            return
+        upload_target = parts[1]
+    else:
+        pending_dir = USER_PENDING_UPLOAD_DIRS.pop(update.effective_user.id, None)
+        if pending_dir:
+            upload_target = pending_dir
+        else:
+            await msg.reply_text("请使用 caption: /upload <远程目录或完整路径> 或先发送 /upload 选择目录")
+            return
 
-    remote_target = resolve_upload_path(parts[1], msg.document.file_name)
+    remote_target = resolve_upload_path(upload_target, msg.document.file_name)
     url = build_webdav_url(remote_target)
 
     await msg.reply_text(f"开始上传到: {remote_target}")
@@ -787,6 +1186,7 @@ def main() -> None:
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("download", download_file))
+    app.add_handler(CommandHandler("upload", upload_command))
     app.add_handler(CommandHandler("mkdir", mkdir))
     app.add_handler(CommandHandler("setdir", setdir))
     app.add_handler(CommandHandler("getdir", getdir))
@@ -795,6 +1195,9 @@ def main() -> None:
     app.add_handler(CommandHandler("magnet", magnet_command))
     app.add_handler(CommandHandler("tasks", tasks_command))
     app.add_handler(CallbackQueryHandler(magnet_dir_picker_callback, pattern=r"^mag:"))
+    app.add_handler(CallbackQueryHandler(dir_picker_callback, pattern=r"^dir:"))
+    app.add_handler(CallbackQueryHandler(upload_dir_picker_callback, pattern=r"^up:"))
+    app.add_handler(CallbackQueryHandler(download_picker_callback, pattern=r"^dl:"))
     app.add_handler(MessageHandler(filters.Document.ALL, upload_document))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, magnet_text_handler),

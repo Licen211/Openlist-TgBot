@@ -12,12 +12,15 @@
 - `/start`：显示帮助
 - `/download <远程文件路径>`：从 OpenList 下载文件并回传到 Telegram
   - 示例：`/download /Movies/demo.mp4`
+- `/download`：打开文件选择器并下载文件（需要配置 OpenList API）
 - 发送文档并附带 caption：`/upload <远程目录或完整路径>`
   - 如果是目录，自动使用 Telegram 原文件名
   - 示例：`/upload /Uploads/`
   - 示例：`/upload /Uploads/report.pdf`
+- `/upload`：打开目录选择器并等待上传文档（需要配置 OpenList API）
 - `/mkdir <远程目录路径>`：创建目录（优先 OpenList API，失败回退 WebDAV）
 - `/setdir <远程目录>`：设置你自己的默认任务目录
+- `/setdir`：打开目录选择器并设置默认任务目录（需要配置 OpenList API）
 - `/getdir`：查看你当前默认任务目录
 - `/settool <aria2|qb>`：设置你的默认离线下载方式
 - `/gettool`：查看你当前离线下载方式
@@ -78,7 +81,7 @@ python bot.py
 ### Telegram
 
 - `TELEGRAM_BOT_TOKEN`：Telegram Bot Token
-- `ALLOWED_USER_IDS`：允许控制机器人的 Telegram 用户 ID，逗号分隔（可选）
+- `ALLOWED_USER_IDS`：允许控制机器人的 Telegram 用户 ID，逗号分隔（可选）；留空表示不限制任何用户
 
 ### OpenList WebDAV（用于上传 / 下载，mkdir 也可作为回退）
 
