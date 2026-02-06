@@ -306,26 +306,50 @@ async def open_mkdir_picker(user_id: int, message) -> None:
     )
 
 
+def _set_picker_entries(session: dict, entries: list[dict]) -> None:
+    session["entries"] = entries
+
+
+def _get_entry_path(session: dict, entry_id: str) -> str | None:
+    entries = session.get("entries", [])
+    if not isinstance(entries, list):
+        return None
+    if not entry_id.isdigit():
+        return None
+    index = int(entry_id)
+    if 0 <= index < len(entries):
+        entry = entries[index]
+        if isinstance(entry, dict):
+            path = entry.get("path")
+            if isinstance(path, str):
+                return path
+    return None
+
+
 def build_magnet_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append(
-        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"mag:pick:{session_id}:.")]
-    )
+    rows.append([InlineKeyboardButton("✅ 选择此目录", callback_data=f"mag:pick:{session_id}")])
 
     if current_path != "/":
-        parent = os.path.dirname(current_path.rstrip("/")) or "/"
-        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"mag:go:{session_id}:{parent}")])
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"mag:up:{session_id}")])
 
+    entries: list[dict] = []
     if ok:
         for dirname in result:
             next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            entries.append({"type": "dir", "path": next_path})
+            entry_id = str(len(entries) - 1)
             rows.append(
-                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"mag:go:{session_id}:{next_path}")]
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"mag:go:{session_id}:{entry_id}")]
             )
     else:
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"mag:noop:{session_id}")])
+
+    session = MAGNET_PICK_SESSIONS.get(session_id)
+    if session is not None:
+        _set_picker_entries(session, entries)
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"mag:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
@@ -335,22 +359,26 @@ def build_dir_picker_keyboard(session_id: str, current_path: str) -> InlineKeybo
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append(
-        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"dir:pick:{session_id}:.")]
-    )
+    rows.append([InlineKeyboardButton("✅ 选择此目录", callback_data=f"dir:pick:{session_id}")])
 
     if current_path != "/":
-        parent = os.path.dirname(current_path.rstrip("/")) or "/"
-        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dir:go:{session_id}:{parent}")])
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dir:up:{session_id}")])
 
+    entries: list[dict] = []
     if ok:
         for dirname in result:
             next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            entries.append({"type": "dir", "path": next_path})
+            entry_id = str(len(entries) - 1)
             rows.append(
-                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"dir:go:{session_id}:{next_path}")]
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"dir:go:{session_id}:{entry_id}")]
             )
     else:
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"dir:noop:{session_id}")])
+
+    session = DIR_PICK_SESSIONS.get(session_id)
+    if session is not None:
+        _set_picker_entries(session, entries)
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"dir:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
@@ -360,22 +388,26 @@ def build_upload_dir_keyboard(session_id: str, current_path: str) -> InlineKeybo
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append(
-        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"up:pick:{session_id}:.")]
-    )
+    rows.append([InlineKeyboardButton("✅ 选择此目录", callback_data=f"up:pick:{session_id}")])
 
     if current_path != "/":
-        parent = os.path.dirname(current_path.rstrip("/")) or "/"
-        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"up:go:{session_id}:{parent}")])
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"up:up:{session_id}")])
 
+    entries: list[dict] = []
     if ok:
         for dirname in result:
             next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            entries.append({"type": "dir", "path": next_path})
+            entry_id = str(len(entries) - 1)
             rows.append(
-                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"up:go:{session_id}:{next_path}")]
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"up:go:{session_id}:{entry_id}")]
             )
     else:
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"up:noop:{session_id}")])
+
+    session = UPLOAD_PICK_SESSIONS.get(session_id)
+    if session is not None:
+        _set_picker_entries(session, entries)
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"up:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
@@ -386,23 +418,31 @@ def build_download_picker_keyboard(session_id: str, current_path: str) -> Inline
     rows: list[list[InlineKeyboardButton]] = []
 
     if current_path != "/":
-        parent = os.path.dirname(current_path.rstrip("/")) or "/"
-        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dl:go:{session_id}:{parent}")])
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"dl:up:{session_id}")])
 
+    entries: list[dict] = []
     if ok:
         dirs, files = result
         for dirname in dirs:
             next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            entries.append({"type": "dir", "path": next_path})
+            entry_id = str(len(entries) - 1)
             rows.append(
-                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"dl:go:{session_id}:{next_path}")]
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"dl:go:{session_id}:{entry_id}")]
             )
         for filename in files:
             file_path = normalize_remote_path(f"{current_path.rstrip('/')}/{filename}")
+            entries.append({"type": "file", "path": file_path})
+            entry_id = str(len(entries) - 1)
             rows.append(
-                [InlineKeyboardButton(f"📄 {filename}", callback_data=f"dl:file:{session_id}:{file_path}")]
+                [InlineKeyboardButton(f"📄 {filename}", callback_data=f"dl:file:{session_id}:{entry_id}")]
             )
     else:
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"dl:noop:{session_id}")])
+
+    session = DOWNLOAD_PICK_SESSIONS.get(session_id)
+    if session is not None:
+        _set_picker_entries(session, entries)
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"dl:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
@@ -412,22 +452,26 @@ def build_mkdir_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboa
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append(
-        [InlineKeyboardButton("✅ 选择此目录", callback_data=f"mk:pick:{session_id}:.")]
-    )
+    rows.append([InlineKeyboardButton("✅ 选择此目录", callback_data=f"mk:pick:{session_id}")])
 
     if current_path != "/":
-        parent = os.path.dirname(current_path.rstrip("/")) or "/"
-        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"mk:go:{session_id}:{parent}")])
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"mk:up:{session_id}")])
 
+    entries: list[dict] = []
     if ok:
         for dirname in result:
             next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            entries.append({"type": "dir", "path": next_path})
+            entry_id = str(len(entries) - 1)
             rows.append(
-                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"mk:go:{session_id}:{next_path}")]
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"mk:go:{session_id}:{entry_id}")]
             )
     else:
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"mk:noop:{session_id}")])
+
+    session = MKDIR_PICK_SESSIONS.get(session_id)
+    if session is not None:
+        _set_picker_entries(session, entries)
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"mk:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
@@ -1030,8 +1074,21 @@ async def magnet_dir_picker_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer()
         return
 
+    if action == "up":
+        current_path = normalize_remote_path(str(session.get("path", "/")))
+        new_path = os.path.dirname(current_path.rstrip("/")) or "/"
+        session["path"] = new_path
+        keyboard = build_magnet_dir_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择下载目录（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
     if action == "go":
-        new_path = normalize_remote_path(extra or "/")
+        resolved_path = _get_entry_path(session, extra)
+        new_path = normalize_remote_path(resolved_path or extra or "/")
         session["path"] = new_path
         keyboard = build_magnet_dir_keyboard(session_id, new_path)
         await query.edit_message_text(
@@ -1092,8 +1149,21 @@ async def dir_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         await query.answer()
         return
 
+    if action == "up":
+        current_path = normalize_remote_path(str(session.get("path", "/")))
+        new_path = os.path.dirname(current_path.rstrip("/")) or "/"
+        session["path"] = new_path
+        keyboard = build_dir_picker_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择要设置的默认目录（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
     if action == "go":
-        new_path = normalize_remote_path(extra or "/")
+        resolved_path = _get_entry_path(session, extra)
+        new_path = normalize_remote_path(resolved_path or extra or "/")
         session["path"] = new_path
         keyboard = build_dir_picker_keyboard(session_id, new_path)
         await query.edit_message_text(
@@ -1151,8 +1221,21 @@ async def upload_dir_picker_callback(update: Update, context: ContextTypes.DEFAU
         await query.answer()
         return
 
+    if action == "up":
+        current_path = normalize_remote_path(str(session.get("path", "/")))
+        new_path = os.path.dirname(current_path.rstrip("/")) or "/"
+        session["path"] = new_path
+        keyboard = build_upload_dir_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择上传目录（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
     if action == "go":
-        new_path = normalize_remote_path(extra or "/")
+        resolved_path = _get_entry_path(session, extra)
+        new_path = normalize_remote_path(resolved_path or extra or "/")
         session["path"] = new_path
         keyboard = build_upload_dir_keyboard(session_id, new_path)
         await query.edit_message_text(
@@ -1210,8 +1293,21 @@ async def download_picker_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer()
         return
 
+    if action == "up":
+        current_path = normalize_remote_path(str(session.get("path", "/")))
+        new_path = os.path.dirname(current_path.rstrip("/")) or "/"
+        session["path"] = new_path
+        keyboard = build_download_picker_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择要下载的文件（当前目录: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
     if action == "go":
-        new_path = normalize_remote_path(extra or "/")
+        resolved_path = _get_entry_path(session, extra)
+        new_path = normalize_remote_path(resolved_path or extra or "/")
         session["path"] = new_path
         keyboard = build_download_picker_keyboard(session_id, new_path)
         await query.edit_message_text(
@@ -1222,7 +1318,8 @@ async def download_picker_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     if action == "file":
-        file_path = normalize_remote_path(extra or "/")
+        resolved_path = _get_entry_path(session, extra)
+        file_path = normalize_remote_path(resolved_path or extra or "/")
         DOWNLOAD_PICK_SESSIONS.pop(session_id, None)
         await query.edit_message_text(f"开始下载: {file_path}")
         file_name = os.path.basename(file_path.rstrip("/")) or "download.bin"
@@ -1290,8 +1387,21 @@ async def mkdir_dir_picker_callback(update: Update, context: ContextTypes.DEFAUL
         await query.answer()
         return
 
+    if action == "up":
+        current_path = normalize_remote_path(str(session.get("path", "/")))
+        new_path = os.path.dirname(current_path.rstrip("/")) or "/"
+        session["path"] = new_path
+        keyboard = build_mkdir_dir_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择要创建目录的父路径（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
     if action == "go":
-        new_path = normalize_remote_path(extra or "/")
+        resolved_path = _get_entry_path(session, extra)
+        new_path = normalize_remote_path(resolved_path or extra or "/")
         session["path"] = new_path
         keyboard = build_mkdir_dir_keyboard(session_id, new_path)
         await query.edit_message_text(
