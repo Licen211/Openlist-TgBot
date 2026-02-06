@@ -60,6 +60,7 @@ ALLOWED_USER_IDS = {
 USER_SELECTED_DIRS: dict[int, str] = {}
 USER_SELECTED_TOOLS: dict[int, str] = {}
 USER_PENDING_UPLOAD_DIRS: dict[int, str] = {}
+USER_PENDING_MKDIR_PARENTS: dict[int, str] = {}
 MAGNET_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
 MAGNET_PICK_SEQ = 0
 DIR_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
@@ -68,6 +69,8 @@ DOWNLOAD_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
 DOWNLOAD_PICK_SEQ = 0
 UPLOAD_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
 UPLOAD_PICK_SEQ = 0
+MKDIR_PICK_SESSIONS: dict[str, dict[str, str | int]] = {}
+MKDIR_PICK_SEQ = 0
 
 
 def is_allowed(user_id: int) -> bool:
@@ -145,6 +148,12 @@ def next_upload_session_id() -> str:
     global UPLOAD_PICK_SEQ
     UPLOAD_PICK_SEQ += 1
     return f"up{UPLOAD_PICK_SEQ}"
+
+
+def next_mkdir_session_id() -> str:
+    global MKDIR_PICK_SEQ
+    MKDIR_PICK_SEQ += 1
+    return f"mk{MKDIR_PICK_SEQ}"
 
 
 def list_openlist_dirs(path: str) -> tuple[bool, list[str] | str]:
@@ -278,6 +287,20 @@ async def open_download_picker(user_id: int, message) -> None:
     )
 
 
+async def open_mkdir_picker(user_id: int, message) -> None:
+    session_id = next_mkdir_session_id()
+    default_dir = get_user_download_dir(user_id)
+    MKDIR_PICK_SESSIONS[session_id] = {
+        "user_id": user_id,
+        "path": default_dir,
+    }
+    keyboard = build_mkdir_dir_keyboard(session_id, default_dir)
+    await message.reply_text(
+        f"请选择要创建目录的父路径（当前: {default_dir}）",
+        reply_markup=keyboard,
+    )
+
+
 def build_magnet_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
     ok, result = list_openlist_dirs(current_path)
     rows: list[list[InlineKeyboardButton]] = []
@@ -371,6 +394,29 @@ def build_download_picker_keyboard(session_id: str, current_path: str) -> Inline
         rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"dl:noop:{session_id}")])
 
     rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"dl:cancel:{session_id}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def build_mkdir_dir_keyboard(session_id: str, current_path: str) -> InlineKeyboardMarkup:
+    ok, result = list_openlist_dirs(current_path)
+    rows: list[list[InlineKeyboardButton]] = []
+
+    rows.append([InlineKeyboardButton("✅ 选择当前目录", callback_data=f"mk:pick:{session_id}")])
+
+    if current_path != "/":
+        parent = os.path.dirname(current_path.rstrip("/")) or "/"
+        rows.append([InlineKeyboardButton("⬆️ 上一级", callback_data=f"mk:go:{session_id}:{parent}")])
+
+    if ok:
+        for dirname in result:
+            next_path = normalize_remote_path(f"{current_path.rstrip('/')}/{dirname}")
+            rows.append(
+                [InlineKeyboardButton(f"📁 {dirname}", callback_data=f"mk:go:{session_id}:{next_path}")]
+            )
+    else:
+        rows.append([InlineKeyboardButton(f"⚠️ {result}", callback_data=f"mk:noop:{session_id}")])
+
+    rows.append([InlineKeyboardButton("❌ 取消", callback_data=f"mk:cancel:{session_id}")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -486,22 +532,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(
         "可用命令:\n"
-        "/download <远程文件路径> - 从 OpenList 下载文件\n"
         "/download - 打开文件选择器并下载文件\n"
         "/quick - 打开常用快捷操作菜单\n"
-        "/mkdir <远程目录路径> - 在 OpenList 创建目录\n"
-        "/setdir <远程目录> - 设置你的默认任务目录\n"
+        "/mkdir - 选择父目录后输入文件夹名创建目录\n"
         "/setdir - 打开目录选择器并设置默认任务目录\n"
         "/getdir - 查看你当前默认任务目录\n"
         "/settool <aria2|qb> - 设置默认离线下载方式\n"
         "/gettool - 查看当前离线下载方式\n"
         "/upload - 打开目录选择器并等待上传\n"
         "/magnet <磁力链接> - 发送后弹出目录选择器\n"
-        "/magnet <远程目录> <磁力链接> - 指定目录直接创建任务\n"
         "/magnet <aria2|qb> <磁力链接> - 指定下载方式并选择目录\n"
         "/tasks - 查询离线下载任务进度\n\n"
         "上传方式:\n"
-        "发送文档并在 caption 写: /upload <远程目录或完整路径>\n"
+        "先发送 /upload 选择目录，再发送文档\n"
         "也可以直接发送 magnet:? 开头的磁力链接"
     )
 
@@ -515,6 +558,7 @@ async def quick_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             [InlineKeyboardButton("📄 下载文件", callback_data="quick:download")],
             [InlineKeyboardButton("📤 上传文件", callback_data="quick:upload")],
             [InlineKeyboardButton("📁 设置默认目录", callback_data="quick:setdir")],
+            [InlineKeyboardButton("📂 创建目录", callback_data="quick:mkdir")],
             [InlineKeyboardButton("📍 查看当前目录", callback_data="quick:getdir")],
             [InlineKeyboardButton("🧾 查看离线任务", callback_data="quick:tasks")],
             [InlineKeyboardButton("❌ 关闭菜单", callback_data="quick:cancel")],
@@ -527,17 +571,10 @@ async def setdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
 
-    if not context.args:
-        user = update.effective_user
-        if not user:
-            return
-        await open_setdir_picker(user.id, update.message)
-        return
-
     user = update.effective_user
-    target_dir = normalize_remote_path(" ".join(context.args).strip())
-    USER_SELECTED_DIRS[user.id] = target_dir
-    await update.message.reply_text(f"已设置默认目录: {target_dir}")
+    if not user:
+        return
+    await open_setdir_picker(user.id, update.message)
 
 
 async def getdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -594,81 +631,20 @@ async def download_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not await require_auth(update):
         return
 
-    if not context.args:
-        user = update.effective_user
-        if not user:
-            return
-        await open_download_picker(user.id, update.message)
+    user = update.effective_user
+    if not user:
         return
-
-    remote_path = " ".join(context.args).strip()
-    if not remote_path:
-        await update.message.reply_text("远程文件路径不能为空。")
-        return
-
-    file_name = os.path.basename(remote_path.rstrip("/")) or "download.bin"
-    url = build_webdav_url(remote_path)
-
-    await update.message.reply_text(f"开始下载: {remote_path}")
-    try:
-        resp = requests.get(
-            url,
-            auth=(OPENLIST_USERNAME, OPENLIST_PASSWORD),
-            stream=True,
-            timeout=120,
-        )
-        if resp.status_code != 200:
-            await update.message.reply_text(f"下载失败，HTTP {resp.status_code}")
-            return
-
-        data = BytesIO(resp.content)
-        data.name = file_name
-        data.seek(0)
-        await update.message.reply_document(document=data, filename=file_name)
-    except requests.RequestException as exc:
-        logger.exception("Download failed")
-        await update.message.reply_text(f"下载失败: {exc}")
+    await open_download_picker(user.id, update.message)
 
 
 async def mkdir(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
 
-    if not context.args:
-        await update.message.reply_text("用法: /mkdir <远程目录路径>")
+    user = update.effective_user
+    if not user:
         return
-
-    target = " ".join(context.args).strip()
-    if not target:
-        await update.message.reply_text("目录路径不能为空。")
-        return
-
-    ok, api_message = create_folder_by_api(target)
-    if ok:
-        await update.message.reply_text(api_message)
-        return
-
-    parts = [p for p in target.split("/") if p]
-    current = ""
-    try:
-        for part in parts:
-            current += f"/{part}"
-            url = build_webdav_url(current + "/")
-            resp = requests.request(
-                "MKCOL", url, auth=(OPENLIST_USERNAME, OPENLIST_PASSWORD), timeout=30
-            )
-            if resp.status_code not in (201, 405):
-                await update.message.reply_text(
-                    f"创建目录失败: {current} (HTTP {resp.status_code})"
-                )
-                return
-        await update.message.reply_text(f"目录已就绪: {normalize_remote_path(target)}")
-    except requests.RequestException as exc:
-        logger.exception("MKCOL failed")
-        if api_message:
-            await update.message.reply_text(f"API 创建失败，回退 WebDAV 也失败: {api_message}; {exc}")
-        else:
-            await update.message.reply_text(f"创建目录失败: {exc}")
+    await open_mkdir_picker(user.id, update.message)
 
 
 def resolve_upload_path(upload_target: str, filename: str) -> str:
@@ -678,42 +654,6 @@ def resolve_upload_path(upload_target: str, filename: str) -> str:
     if "." not in os.path.basename(upload_target):
         return upload_target.rstrip("/") + "/" + filename
     return upload_target
-
-
-def parse_magnet_input(
-    args: list[str], default_target_dir: str
-) -> tuple[str, str, str] | tuple[None, None, None]:
-    if not args:
-        return None, None, None
-
-    default_tool = normalize_offline_tool(OPENLIST_DEFAULT_OFFLINE_TOOL)
-    first = args[0].strip().lower()
-
-    if first in ("aria2", "qb", "qbit", "qbittorrent"):
-        selected_tool = normalize_offline_tool(first)
-        rest = args[1:]
-        if not rest:
-            return None, None, None
-        joined = " ".join(rest).strip()
-        if joined.startswith("magnet:?"):
-            return default_target_dir, joined, selected_tool
-        if len(rest) >= 2:
-            target = rest[0]
-            magnet_link = " ".join(rest[1:]).strip()
-            if magnet_link.startswith("magnet:?"):
-                return target, magnet_link, selected_tool
-        return None, None, None
-
-    joined = " ".join(args).strip()
-    if joined.startswith("magnet:?"):
-        return default_target_dir, joined, default_tool
-
-    if len(args) >= 2:
-        target = args[0]
-        magnet_link = " ".join(args[1:]).strip()
-        if magnet_link.startswith("magnet:?"):
-            return target, magnet_link, default_tool
-    return None, None, None
 
 
 def create_offline_download_task(
@@ -804,6 +744,30 @@ def create_folder_by_api(target_dir: str) -> tuple[bool, str]:
     return False, last_error
 
 
+def create_folder_with_fallback(target_dir: str) -> tuple[bool, str]:
+    ok, api_message = create_folder_by_api(target_dir)
+    if ok:
+        return True, api_message
+
+    parts = [p for p in target_dir.split("/") if p]
+    current = ""
+    try:
+        for part in parts:
+            current += f"/{part}"
+            url = build_webdav_url(current + "/")
+            resp = requests.request(
+                "MKCOL", url, auth=(OPENLIST_USERNAME, OPENLIST_PASSWORD), timeout=30
+            )
+            if resp.status_code not in (201, 405):
+                return False, f"创建目录失败: {current} (HTTP {resp.status_code})"
+        return True, f"目录已就绪: {normalize_remote_path(target_dir)}"
+    except requests.RequestException as exc:
+        logger.exception("MKCOL failed")
+        if api_message:
+            return False, f"API 创建失败，回退 WebDAV 也失败: {api_message}; {exc}"
+        return False, f"创建目录失败: {exc}"
+
+
 async def magnet_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
@@ -816,12 +780,10 @@ async def magnet_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text(
             "用法:\n"
             "/magnet <磁力链接>\n"
-            "/magnet <远程目录> <磁力链接>\n"
             "/magnet <aria2|qb> <磁力链接>"
         )
         return
 
-    default_target_dir = get_user_download_dir(user.id)
     default_tool = get_user_offline_tool(user.id)
 
     raw_first = context.args[0].strip().lower()
@@ -831,36 +793,29 @@ async def magnet_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         inline_tool = normalize_offline_tool(raw_first)
         inline_args = context.args[1:]
 
-    joined = " ".join(inline_args).strip()
-    if joined.startswith("magnet:?"):
-        session_id = next_magnet_session_id()
-        chosen_tool = inline_tool or default_tool
-        MAGNET_PICK_SESSIONS[session_id] = {
-            "user_id": user.id,
-            "magnet": joined,
-            "path": default_target_dir,
-            "tool": chosen_tool,
-        }
-        keyboard = build_magnet_dir_keyboard(session_id, default_target_dir)
-        await update.message.reply_text(
-            f"请选择下载目录（当前: {default_target_dir}，方式: {chosen_tool}）",
-            reply_markup=keyboard,
-        )
-        return
-
-    target_dir, magnet_link, tool = parse_magnet_input(context.args, default_target_dir)
-    if not target_dir or not magnet_link or not tool:
+    magnet_link = next((arg for arg in inline_args if arg.startswith("magnet:?")), "")
+    if not magnet_link:
         await update.message.reply_text(
             "用法:\n"
             "/magnet <磁力链接>\n"
-            "/magnet <远程目录> <磁力链接>\n"
             "/magnet <aria2|qb> <磁力链接>"
         )
         return
 
-    await update.message.reply_text(f"正在创建离线下载任务，目标目录: {target_dir}，方式: {tool}")
-    _, message = create_offline_download_task(target_dir, magnet_link, tool)
-    await update.message.reply_text(message)
+    default_target_dir = get_user_download_dir(user.id)
+    session_id = next_magnet_session_id()
+    chosen_tool = inline_tool or default_tool
+    MAGNET_PICK_SESSIONS[session_id] = {
+        "user_id": user.id,
+        "magnet": magnet_link,
+        "path": default_target_dir,
+        "tool": chosen_tool,
+    }
+    keyboard = build_magnet_dir_keyboard(session_id, default_target_dir)
+    await update.message.reply_text(
+        f"请选择下载目录（当前: {default_target_dir}，方式: {chosen_tool}）",
+        reply_markup=keyboard,
+    )
 
 
 async def magnet_dir_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1123,6 +1078,65 @@ async def download_picker_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer("未知操作")
 
 
+async def mkdir_dir_picker_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    user = query.from_user
+    if not is_allowed(user.id):
+        await query.answer("没有权限", show_alert=True)
+        return
+
+    if not query.data.startswith("mk:"):
+        return
+
+    parts = query.data.split(":", 3)
+    action = parts[1] if len(parts) > 1 else ""
+    session_id = parts[2] if len(parts) > 2 else ""
+    extra = parts[3] if len(parts) > 3 else ""
+
+    session = MKDIR_PICK_SESSIONS.get(session_id)
+    if not session:
+        await query.answer("会话已失效，请重新发送 /mkdir", show_alert=True)
+        return
+
+    if int(session.get("user_id", -1)) != user.id:
+        await query.answer("这个选择器不是你的。", show_alert=True)
+        return
+
+    if action == "noop":
+        await query.answer("当前目录读取失败")
+        return
+
+    if action == "cancel":
+        MKDIR_PICK_SESSIONS.pop(session_id, None)
+        await query.edit_message_text("已取消创建目录。")
+        await query.answer()
+        return
+
+    if action == "go":
+        new_path = normalize_remote_path(extra or "/")
+        session["path"] = new_path
+        keyboard = build_mkdir_dir_keyboard(session_id, new_path)
+        await query.edit_message_text(
+            f"请选择要创建目录的父路径（当前: {new_path}）",
+            reply_markup=keyboard,
+        )
+        await query.answer()
+        return
+
+    if action == "pick":
+        target_dir = normalize_remote_path(str(session.get("path", "/")))
+        MKDIR_PICK_SESSIONS.pop(session_id, None)
+        USER_PENDING_MKDIR_PARENTS[user.id] = target_dir
+        await query.edit_message_text(f"已选择父目录: {target_dir}\n请发送要创建的文件夹名。")
+        await query.answer("已选择")
+        return
+
+    await query.answer("未知操作")
+
+
 async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     if not query or not query.data:
@@ -1187,6 +1201,11 @@ async def quick_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.answer()
         return
 
+    if action == "mkdir":
+        await open_mkdir_picker(user.id, message)
+        await query.answer()
+        return
+
     await query.answer("未知操作")
 
 
@@ -1213,6 +1232,32 @@ async def magnet_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     await msg.reply_text(message)
 
 
+async def mkdir_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await require_auth(update):
+        return
+
+    msg = update.message
+    if msg is None or not msg.text:
+        return
+
+    user = update.effective_user
+    if not user:
+        return
+
+    parent_dir = USER_PENDING_MKDIR_PARENTS.pop(user.id, None)
+    if not parent_dir:
+        return
+
+    folder_name = msg.text.strip().strip("/")
+    if not folder_name:
+        await msg.reply_text("文件夹名不能为空，请重新发送名称。")
+        return
+
+    target = normalize_remote_path(f"{parent_dir.rstrip('/')}/{folder_name}")
+    ok, message = create_folder_with_fallback(target)
+    await msg.reply_text(message)
+
+
 async def upload_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update):
         return
@@ -1221,24 +1266,12 @@ async def upload_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if msg is None or msg.document is None:
         return
 
-    caption = msg.caption or ""
-    upload_target = None
+    pending_dir = USER_PENDING_UPLOAD_DIRS.pop(update.effective_user.id, None)
+    if not pending_dir:
+        await msg.reply_text("请先发送 /upload 选择上传目录，然后再发送文档。")
+        return
 
-    if caption.strip().startswith("/upload"):
-        parts = caption.strip().split(maxsplit=1)
-        if len(parts) < 2:
-            await msg.reply_text("用法: 在文档 caption 里写 /upload <远程目录或完整路径>")
-            return
-        upload_target = parts[1]
-    else:
-        pending_dir = USER_PENDING_UPLOAD_DIRS.pop(update.effective_user.id, None)
-        if pending_dir:
-            upload_target = pending_dir
-        else:
-            await msg.reply_text("请使用 caption: /upload <远程目录或完整路径> 或先发送 /upload 选择目录")
-            return
-
-    remote_target = resolve_upload_path(upload_target, msg.document.file_name)
+    remote_target = resolve_upload_path(pending_dir, msg.document.file_name)
     url = build_webdav_url(remote_target)
 
     await msg.reply_text(f"开始上传到: {remote_target}")
@@ -1284,9 +1317,10 @@ def main() -> None:
             [
                 BotCommand("start", "显示帮助"),
                 BotCommand("quick", "快捷操作菜单"),
-                BotCommand("download", "下载文件或打开选择器"),
+                BotCommand("download", "打开选择器下载文件"),
                 BotCommand("upload", "选择目录后上传文件"),
-                BotCommand("setdir", "设置默认下载目录"),
+                BotCommand("mkdir", "选择目录后创建文件夹"),
+                BotCommand("setdir", "选择默认下载目录"),
                 BotCommand("getdir", "查看当前默认目录"),
                 BotCommand("settool", "设置离线下载方式"),
                 BotCommand("gettool", "查看离线下载方式"),
@@ -1311,8 +1345,10 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(dir_picker_callback, pattern=r"^dir:"))
     app.add_handler(CallbackQueryHandler(upload_dir_picker_callback, pattern=r"^up:"))
     app.add_handler(CallbackQueryHandler(download_picker_callback, pattern=r"^dl:"))
+    app.add_handler(CallbackQueryHandler(mkdir_dir_picker_callback, pattern=r"^mk:"))
     app.add_handler(CallbackQueryHandler(quick_callback, pattern=r"^quick:"))
     app.add_handler(MessageHandler(filters.Document.ALL, upload_document))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mkdir_name_handler))
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, magnet_text_handler),
     )
