@@ -84,6 +84,10 @@ def is_allowed(user_id: int) -> bool:
     return user_id in ALLOWED_USER_IDS
 
 
+def has_webdav_config() -> bool:
+    return bool(WEBDAV_URL and OPENLIST_USERNAME and OPENLIST_PASSWORD)
+
+
 def normalize_remote_path(remote_path: str) -> str:
     remote_path = remote_path.strip()
     if not remote_path.startswith("/"):
@@ -998,6 +1002,9 @@ def create_folder_with_fallback(target_dir: str) -> tuple[bool, str]:
     if ok:
         return True, api_message
 
+    if not has_webdav_config():
+        return False, (api_message or "未配置 WebDAV，且 API 创建目录失败。")
+
     parts = [p for p in target_dir.split("/") if p]
     current = ""
     try:
@@ -1352,6 +1359,14 @@ async def download_picker_callback(update: Update, context: ContextTypes.DEFAULT
         file_path = normalize_remote_path(resolved_path or extra or "/")
         DOWNLOAD_PICK_SESSIONS.pop(session_id, None)
         await query.edit_message_text(f"开始下载: {file_path}")
+
+        if not has_webdav_config():
+            await query.message.reply_text(
+                "未配置 OpenList WebDAV 账号密码（OPENLIST_WEBDAV_URL/OPENLIST_USERNAME/OPENLIST_PASSWORD），无法下载。"
+            )
+            await query.answer("缺少 WebDAV 配置", show_alert=True)
+            return
+
         file_name = os.path.basename(file_path.rstrip("/")) or "download.bin"
         url = build_webdav_url(file_path)
         try:
@@ -1604,7 +1619,14 @@ async def mkdir_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not parent_dir:
         return
 
-    folder_name = msg.text.strip().strip("/")
+    text_value = msg.text.strip()
+    if text_value.startswith("magnet:?"):
+        await msg.reply_text(
+            "你当前在创建目录流程中，请先发送文件夹名，或取消后再发磁力链接。"
+        )
+        return
+
+    folder_name = text_value.strip("/")
     if not folder_name:
         await msg.reply_text("文件夹名不能为空，请重新发送名称。")
         return
@@ -1625,6 +1647,12 @@ async def upload_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     pending_dir = USER_PENDING_UPLOAD_DIRS.pop(update.effective_user.id, None)
     if not pending_dir:
         await msg.reply_text("请先发送 /upload 选择上传目录，然后再发送文档。")
+        return
+
+    if not has_webdav_config():
+        await msg.reply_text(
+            "未配置 OpenList WebDAV 账号密码（OPENLIST_WEBDAV_URL/OPENLIST_USERNAME/OPENLIST_PASSWORD），无法上传。"
+        )
         return
 
     remote_target = resolve_upload_path(pending_dir, msg.document.file_name)
@@ -1654,15 +1682,8 @@ async def upload_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 
 def validate_env() -> None:
-    required = {
-        "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
-        "OPENLIST_WEBDAV_URL": WEBDAV_URL,
-        "OPENLIST_USERNAME": OPENLIST_USERNAME,
-        "OPENLIST_PASSWORD": OPENLIST_PASSWORD,
-    }
-    missing = [k for k, v in required.items() if not v]
-    if missing:
-        raise RuntimeError(f"缺少环境变量: {', '.join(missing)}")
+    if not BOT_TOKEN:
+        raise RuntimeError("缺少环境变量: TELEGRAM_BOT_TOKEN")
 
 
 def main() -> None:
