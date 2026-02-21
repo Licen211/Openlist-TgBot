@@ -127,6 +127,11 @@ configure_env_interactive() {
     OPENLIST_OFFLINE_LIST_ENDPOINT
     OPENLIST_DEFAULT_DOWNLOAD_DIR
     OPENLIST_DEFAULT_OFFLINE_TOOL
+    QBIT_BASE_URL
+    QBIT_USERNAME
+    QBIT_PASSWORD
+    ARIA2_RPC_URL
+    ARIA2_RPC_SECRET
   )
 
   for key in "${keys[@]}"; do
@@ -154,7 +159,12 @@ configure_env_quick_menu() {
     echo "11) 设置目录浏览接口路径"
     echo "12) 设置创建目录接口路径"
     echo "13) 设置离线任务列表接口路径"
-    echo "14) 全量配置（逐项输入）"
+    echo "14) 设置 qBittorrent Web API 地址"
+    echo "15) 设置 qBittorrent 用户名"
+    echo "16) 设置 qBittorrent 密码"
+    echo "17) 设置 aria2 RPC 地址"
+    echo "18) 设置 aria2 RPC Secret（可选）"
+    echo "19) 全量配置（逐项输入）"
     echo "0) 返回上级菜单"
     read -r -p "请选择: " choice
 
@@ -172,7 +182,12 @@ configure_env_quick_menu() {
       11) prompt_and_set_key "OPENLIST_LIST_ENDPOINT" ;;
       12) prompt_and_set_key "OPENLIST_MKDIR_ENDPOINT" ;;
       13) prompt_and_set_key "OPENLIST_OFFLINE_LIST_ENDPOINT" ;;
-      14) configure_env_interactive ;;
+      14) prompt_and_set_key "QBIT_BASE_URL" ;;
+      15) prompt_and_set_key "QBIT_USERNAME" ;;
+      16) prompt_and_set_key "QBIT_PASSWORD" ;;
+      17) prompt_and_set_key "ARIA2_RPC_URL" ;;
+      18) prompt_and_set_key "ARIA2_RPC_SECRET" ;;
+      19) configure_env_interactive ;;
       0) break ;;
       *) echo "无效选项" ;;
     esac
@@ -267,6 +282,29 @@ view_log() {
   tail -n 50 "$LOG_FILE"
 }
 
+update_bot() {
+  if ! command -v git >/dev/null 2>&1; then
+    echo "未找到 git，请先安装 git。"
+    return
+  fi
+
+  if [[ ! -d "$PROJECT_DIR/.git" ]]; then
+    echo "当前目录不是 Git 仓库，无法更新。"
+    return
+  fi
+
+  echo "拉取最新代码..."
+  git fetch --all
+  git pull --rebase --autostash
+
+  echo "更新依赖..."
+  install_deps
+
+  echo "重启机器人..."
+  stop_bot
+  start_bot
+}
+
 quick_install_and_start() {
   install_deps
   configure_env_quick_menu
@@ -284,6 +322,7 @@ menu() {
     echo "6) 停止机器人"
     echo "7) 查看运行状态"
     echo "8) 查看最近日志"
+    echo "9) 更新机器人（git 拉取并重启）"
     echo "0) 退出"
     read -r -p "请选择: " choice
 
@@ -296,6 +335,7 @@ menu() {
       6) stop_bot ;;
       7) status_bot ;;
       8) view_log ;;
+      9) update_bot ;;
       0) echo "已退出"; break ;;
       *) echo "无效选项" ;;
     esac

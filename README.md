@@ -10,19 +10,15 @@
 ## 功能
 
 - `/start`：显示帮助
-- `/download <远程文件路径>`：从 OpenList 下载文件并回传到 Telegram
-  - 示例：`/download /Movies/demo.mp4`
-- 发送文档并附带 caption：`/upload <远程目录或完整路径>`
-  - 如果是目录，自动使用 Telegram 原文件名
-  - 示例：`/upload /Uploads/`
-  - 示例：`/upload /Uploads/report.pdf`
-- `/mkdir <远程目录路径>`：创建目录（优先 OpenList API，失败回退 WebDAV）
-- `/setdir <远程目录>`：设置你自己的默认任务目录
+- `/download`：打开文件选择器并下载文件（需要配置 OpenList API）
+- `/quick`：打开常用快捷操作菜单
+- `/upload`：打开目录选择器并等待上传文档（需要配置 OpenList API）
+- `/mkdir`：选择父目录后输入文件夹名创建目录
+- `/setdir`：打开目录选择器并设置默认任务目录（需要配置 OpenList API）
 - `/getdir`：查看你当前默认任务目录
 - `/settool <aria2|qb>`：设置你的默认离线下载方式
 - `/gettool`：查看你当前离线下载方式
 - `/magnet <磁力链接>`：发送后弹出目录选择器，再创建离线下载任务
-- `/magnet <远程目录> <磁力链接>`：指定目录创建离线下载任务
 - `/magnet <aria2|qb> <磁力链接>`：手动选择离线下载方式并再选目录
 - `/tasks`：查询 OpenList 离线下载任务进度
 - 直接发送 `magnet:?` 开头文本：自动用你当前默认目录创建离线下载任务
@@ -78,7 +74,7 @@ python bot.py
 ### Telegram
 
 - `TELEGRAM_BOT_TOKEN`：Telegram Bot Token
-- `ALLOWED_USER_IDS`：允许控制机器人的 Telegram 用户 ID，逗号分隔（可选）
+- `ALLOWED_USER_IDS`：允许控制机器人的 Telegram 用户 ID，逗号分隔（可选）；留空表示不限制任何用户
 
 ### OpenList WebDAV（用于上传 / 下载，mkdir 也可作为回退）
 
@@ -96,6 +92,14 @@ python bot.py
 - `OPENLIST_OFFLINE_LIST_ENDPOINT`：离线任务列表 API 路径（默认：`/api/task/offline_download/list`）
 - `OPENLIST_DEFAULT_DOWNLOAD_DIR`：全局默认下载目录（默认：`/downloads`）
 - `OPENLIST_DEFAULT_OFFLINE_TOOL`：全局默认离线下载方式（`aria2` 或 `qb`，默认：`aria2`）
+
+### qBittorrent / aria2（OpenList 查询失败时的离线任务进度兜底）
+
+- `QBIT_BASE_URL`：qBittorrent Web API 地址（例如：`http://127.0.0.1:8080`）
+- `QBIT_USERNAME`：qBittorrent 用户名
+- `QBIT_PASSWORD`：qBittorrent 密码
+- `ARIA2_RPC_URL`：aria2 JSON-RPC 地址（例如：`http://127.0.0.1:6800/jsonrpc`）
+- `ARIA2_RPC_SECRET`：aria2 RPC 密钥（可留空）
 
 ## 注意
 
